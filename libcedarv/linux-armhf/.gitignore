@@ -1,2 +1,8 @@
-libcedarv.a
+*~
+*.bak
+*.project
+*.cproject
+*.o
+*.svn*
+.gitignore
 

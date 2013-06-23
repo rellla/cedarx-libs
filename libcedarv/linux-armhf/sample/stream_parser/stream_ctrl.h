@@ -30,7 +30,8 @@
 #define STREAM_CONTROL_H
 
 #include <libcedarv.h>
-
+#define VIDEO_PACKET_TYPE		(0)
+#define AUDIO_PACKET_TYPE		(1)
 #ifdef __cplusplus
 extern "C" {
 #endif

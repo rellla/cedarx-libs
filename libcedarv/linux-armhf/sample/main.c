@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <malloc.h>
+#include <sys/time.h>
 #include <libcedarv.h>	//* for decoding video
 #include "render.h"
 
@@ -28,7 +29,13 @@ typedef struct disp_queue_t
 	s32 rd_idx;
 }disp_queue_t;
 
-extern long long avs_counter_get_time_ms();
+long long libve_get_now_us() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    return (long long)tv.tv_sec * 1000000ll + tv.tv_usec;
+}
+
 int main(int argc, char *argv[])
 {
 	s32					 		ret;
@@ -48,7 +55,7 @@ int main(int argc, char *argv[])
 	void*				 		hpmp;
 	cedarv_decoder_t*    		hcedarv;
 //	__disp_rect_t				disp_rect;
-
+	
 	long long time1, time2;
 
 #ifndef TEST_STREAM
@@ -63,7 +70,7 @@ int main(int argc, char *argv[])
 	int timeout_count = 0;
 	int curr_disp_frame_id,last_disp_frame_id = -1;
 	disp_queue_t disp_queue;
-
+	
 	memset(&picture, 0, sizeof(cedarv_picture_t));
 	memset(&disp_queue,0,sizeof(disp_queue_t));
 	for(i = 0; i<MAX_DISP_ELEMENTS; i++)
@@ -78,7 +85,7 @@ int main(int argc, char *argv[])
 		__msg("open pmp file@%s parser fail.",media_file_path);
 		return -1;
 	}
-
+	
 	//* 2. get video stream information from parser.
 	GetVideoStreamInfo(hpmp, &stream_info);
 	if(stream_info.format == CEDARV_STREAM_FORMAT_UNKNOW)
@@ -134,10 +141,10 @@ int main(int argc, char *argv[])
 
 		return -1;
 	}
-
+	
 	ret = render_init();
 	if(ret < 0)
-	{
+	{		
 		__msg("render init error, program exit");
 		if(stream_info.init_data)
 			free(stream_info.init_data);
@@ -217,10 +224,10 @@ _read_again:
 #endif
 
 			//* 7.5 decode bitstream data.
-			time1 = avs_counter_get_time_ms();
+			time1 = libve_get_now_us();
 			ret = hcedarv->decode(hcedarv);
-			time2 = avs_counter_get_time_ms();
-
+			time2 = libve_get_now_us();
+			
 			__msg("decoder ret %d, %lld:%lld, time %lld", ret, time2, time1, time2 - time1);
 			if(ret == CEDARV_RESULT_ERR_NO_MEMORY || ret == CEDARV_RESULT_ERR_UNSUPPORTED)
 			{
@@ -243,7 +250,7 @@ _read_again:
 					}
 					timeout_count++;
 				}
-
+	
 				render_render((void *)&picture, pic_cnt);
 				//__msg("pic_cnt %d, wr_idx %d, pic_id %d", pic_cnt, disp_queue.wr_idx, picture.id);
 				disp_queue.disp_elements[disp_queue.wr_idx].dec_frame_id = picture.id;
@@ -253,13 +260,13 @@ _read_again:
 					disp_queue.wr_idx = 0;
 				}
 				pic_cnt++;
+				
 
-
-				//* after one picture is displayed, you should return it to libcedarv to release the picture frame buffer.
+				//* after one picture is displayed, you should return it to libcedarv to release the picture frame buffer.				
 
 				//* note: you can request more than one picture.
 			}
-			curr_disp_frame_id = render_get_disp_frame_id();
+			curr_disp_frame_id = render_get_disp_frame_id();			
 			if (last_disp_frame_id != curr_disp_frame_id)
 			{
 				for (i = 0; i < MAX_DISP_ELEMENTS; i++)
@@ -279,7 +286,7 @@ _read_again:
 						break;
 					}
 				}
-			}
+			}				
 			last_disp_frame_id = curr_disp_frame_id;
 		}
 		else
@@ -295,12 +302,12 @@ _read_again:
 	libcedarv_exit(hcedarv);
 
 	if(stream_info.init_data)
-		free(stream_info.init_data);
-
+		free(stream_info.init_data);	
+	
 	CloseMediaFile(&hpmp);
-
+	
 	render_exit();
-
+	
 	return 0;
 }
 

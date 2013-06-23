@@ -1,8 +1,16 @@
-
+/*
+ * Nerver use log machanism defined in awprintf.h
+ * when debuging in case of  multi process.
+ * Use LOGX defined by Android.
+ */
+//#define LOG_NDEBUG 0
+//#define LOG_TAG "fbm"
+//#include <CDX_Debug.h>
 
 #include "fbm.h"
-#include "vdecoder_config.h"
-#include "vdecoder.h"
+//#include "vdecoder_config.h"
+//#include "vdecoder.h"
+#include "commom_type.h"
 #include "awprintf.h"
 
 static void fbm_enqueue(frame_info_t** pp_head, frame_info_t* p);
@@ -13,10 +21,9 @@ static s32  lock(fbm_t* fbm);
 static void unlock(fbm_t* fbm);
 
 
-#if 0
-void print_fbm_status(Handle h)
+void fbm_print_status(Handle h)
 {
-	const u8* status_string[5] =
+	const char* status_string[5] =
 	{
 		"FS_EMPTY",
 		"FS_DECODER_USING",
@@ -26,46 +33,115 @@ void print_fbm_status(Handle h)
 	};
 
 	fbm_t*        fbm;
-	frame_info_t* p;
 	u32			  i;
-
 	fbm = (fbm_t*)h;
 
 #if 0
-	LOGV("  empty queue:\n");
-
+	frame_info_t* p;
+	Log("  empty queue:\n");
+    
 	p = fbm->empty_queue;
-
+    
 	while(p)
 	{
-		LOGV("    frame %d, status = %s.\n", p->picture.id, status_string[p->status]);
+		Log("    frame %d, status = %s.\n", p->picture.id, status_string[p->status]);
 		p = p->next;
 	}
 
-	LOGV("\n");
+	Log("\n");
 
-	LOGV("  display queue:\n");
+	Log("  display queue:\n");
 	p = fbm->display_queue;
 	while(p)
 	{
-		LOGV("    frame %d, status = %s.\n", p->picture.id, status_string[p->status]);
+		Log("    frame %d, status = %s.\n", p->picture.id, status_string[p->status]);
 		p = p->next;
 	}
 
-	LOGV("\n");
+	Log("\n");
 #endif
-	LOGV("  total queue:\n");
+	printf("  total queue:\n");
 	for(i=0; i<fbm->max_frame_num; i++)
 	{
-		LOGV("frame=%x,frame %d, status = %s.\n", &(fbm->frames[i].picture), fbm->frames[i].picture.id, status_string[fbm->frames[i].status]);
+		printf("frame=%p, frame %d, status = %s.\n", &(fbm->frames[i].picture), fbm->frames[i].picture.id, status_string[fbm->frames[i].status]);
 	}
 
-	LOGV("\n");
+	printf("\n");
 }
-#endif
-
 
 static s32 fbm_alloc_frame_buffer(vpicture_t* picture)
+{
+    picture->y 	   = NULL;
+    picture->u 	   = NULL;
+    picture->v 	   = NULL;
+    picture->alpha = NULL;
+    
+    picture->y2	   	 = NULL;
+    picture->v2	  	 = NULL;
+    picture->u2	  	 = NULL;
+    picture->alpha2  = NULL;
+
+
+	if(picture->size_y != 0)
+ 	{
+ 		picture->y = (u8*)mem_palloc(picture->size_y, 1024);
+ 		if(picture->y == NULL)
+ 			goto _exit;
+
+ 	}
+    
+ 	if(picture->size_u != 0)
+ 	{
+ 		picture->u = (u8*)mem_palloc(picture->size_u, 1024);
+ 		if(picture->u == NULL)
+ 		{
+ 			goto _exit;
+ 		}
+ 	}
+    
+ 	if(picture->size_v != 0)
+ 	{
+ 		picture->v = (u8*)mem_palloc(picture->size_v, 1024);
+ 		if(picture->v == NULL)
+ 		{
+ 			goto _exit;
+ 		}
+ 	}
+
+ 	if(picture->size_alpha != 0)
+ 	{
+ 		picture->alpha = (u8*)mem_palloc(picture->size_alpha, 1024);
+ 		if(picture->alpha == NULL)
+ 		{
+ 			goto _exit;
+ 		}
+ 	}
+	return 0;
+
+_exit:
+	if(picture->v != NULL)
+	{
+		mem_pfree(picture->v);
+		picture->v = NULL;
+	}
+	if(picture->u != NULL)
+	{
+		mem_pfree(picture->u);
+		picture->u = NULL;
+	}
+	if(picture->y != NULL)
+	{
+		mem_pfree(picture->y);
+		picture->y = NULL;
+	}
+	if(picture->alpha != NULL){
+		mem_pfree(picture->alpha);
+		picture->alpha = NULL;
+	}
+	return -1;
+}
+
+s32 fbm_alloc_yv32_frame_buffer(vpicture_t* picture)
 {
     picture->y 	   = NULL;
     picture->u 	   = NULL;
@@ -112,6 +188,15 @@ static s32 fbm_alloc_frame_buffer(vpicture_t* picture)
  			goto _exit;
  		}
  	}
+
+	if(picture->size_y2 != 0)
+ 	{
+ 		picture->y2 = (u8*)mem_palloc(picture->size_y2 + picture->size_u2, 16);
+ 		if(picture->y2 == NULL)
+ 			goto _exit;
+
+ 	}
+
 	return 0;
 
 _exit:
@@ -134,55 +219,94 @@ _exit:
 		mem_pfree(picture->alpha);
 		picture->alpha = NULL;
 	}
+	if(picture->y2 != NULL)
+	{
+		mem_pfree(picture->y2);
+		picture->y2 = NULL;
+	}
+	return -1;
+}
+
+//mickey
+static s32 fbm_alloc_yv12_frame_buffer(vpicture_t* picture)
+{
+    picture->y 	   = NULL;
+    picture->u 	   = NULL;
+    picture->v 	   = NULL;
+    picture->alpha = NULL;
+
+    picture->y2	   	 = NULL;
+    picture->v2	  	 = NULL;
+    picture->u2	  	 = NULL;
+    picture->alpha2  = NULL;
+
+	if(picture->size_y != 0)
+ 	{
+ 		picture->y = (u8*)mem_palloc(picture->size_y + picture->size_u*2, 16);
+ 		if(picture->y == NULL)
+ 			goto _exit;
+
+ 	}
+
+	return 0;
+
+_exit:
+
+	if(picture->y != NULL)
+	{
+		mem_pfree(picture->y);
+		picture->y = NULL;
+	}
+
 	return -1;
 }
 
 s32 fbm_free_redBlue_frame_buffer(Handle h)
-{
+{   
     u32 i = 0;
     fbm_t* 		  fbm = NULL;
     vpicture_t*   picture = NULL;
 
     fbm = (fbm_t*)h;
-
+    
     if (lock(fbm) != 0)
     {
         return -1;
     }
     for(i=0; i<fbm->max_frame_num; i++)
- 	{
+ 	{   
         picture = &fbm->frames[i].picture;
         if(picture->y2 != NULL)
 	    {
  		    mem_pfree(picture->y2);
  		    picture->y2 = NULL;
  	    }
-
+	
  	    if(picture->u2 != NULL)
 	    {
  		    mem_pfree(picture->u2);
  		    picture->u2 = NULL;
  	    }
-
+	
  	    if(picture->v2 != NULL)
 	    {
  		    mem_pfree(picture->v2);
  		    picture->v2 = NULL;
  	    }
-
+	
  	    if(picture->alpha2 != NULL)
 	    {
  		    mem_pfree(picture->alpha2);
  		    picture->alpha2 = NULL;
  	    }
     }
-   unlock(fbm);
+   unlock(fbm);  
    return 0;
 }
 
 
 s32 fbm_alloc_redBlue_frame_buffer(Handle h)
-{
+{   
     s32     	  i = 0;
     fbm_t* 		  fbm = NULL;
     vpicture_t*   picture = NULL;
@@ -202,11 +326,11 @@ s32 fbm_alloc_redBlue_frame_buffer(Handle h)
         unlock(fbm);
         return 0;
     }
-
+    
     for(i=0; i<(s32)fbm->max_frame_num; i++)
-    {
+    {   
         picture = &fbm->frames[i].picture;
-
+        
         if(picture->size_y2)
         {
  		    picture->y2 = (u8 *)mem_palloc(picture->size_y2, 1024);
@@ -214,7 +338,7 @@ s32 fbm_alloc_redBlue_frame_buffer(Handle h)
             {
  			   break;
  		    }
-
+            
  	    }
  	    if(picture->size_u2)
         {
@@ -241,18 +365,85 @@ s32 fbm_alloc_redBlue_frame_buffer(Handle h)
  		    }
  	    }
    }
+    
+   if(i <(s32)fbm->max_frame_num)
+   {      
+        unlock(fbm);
+        fbm_free_redBlue_frame_buffer(h);
+        return -1;
+   }
+   unlock(fbm);  
+   return 0;
+}
+
+s32 fbm_free_YV12_frame_buffer(Handle h)
+{
+    u32 i = 0;
+    fbm_t* 		  fbm = NULL;
+    vpicture_t*   picture = NULL;
+
+    fbm = (fbm_t*)h;
+
+    if (lock(fbm) != 0)
+    {
+        return -1;
+    }
+    for(i=0; i<fbm->max_frame_num; i++)
+ 	{
+        picture = &fbm->frames[i].picture;
+        if(picture->y2 != NULL)
+	    {
+ 		    mem_pfree(picture->y2);
+ 		    picture->y2 = NULL;
+ 	    }
+    }
+   unlock(fbm);
+   return 0;
+}
+
+s32 fbm_alloc_YV12_frame_buffer(Handle h)
+{
+    s32     	  i = 0;
+    fbm_t* 		  fbm = NULL;
+    vpicture_t*   picture = NULL;
+
+    fbm = (fbm_t*)h;
+
+    if(fbm == NULL)
+        return -1;
+
+    if(lock(fbm) != 0)
+    {
+        return -1;
+    }
+    picture = &fbm->frames[0].picture;
+    if(picture->y2!=NULL)
+    {
+        unlock(fbm);
+        return 0;
+    }
+
+    for(i=0; i<(s32)fbm->max_frame_num; i++)
+    {
+        picture = &fbm->frames[i].picture;
+
+    	if(picture->size_y2 != 0)
+     	{
+     		picture->y2 = (u8*)mem_palloc(picture->size_y2 + picture->size_u2, 16);
+     		if(picture->y2 == NULL)
+     			break;
+     	}
+   }
 
    if(i <(s32)fbm->max_frame_num)
    {
         unlock(fbm);
-        fbm_free_redBlue_frame_buffer(h);
+        fbm_free_YV12_frame_buffer(h);
         return -1;
    }
    unlock(fbm);
    return 0;
 }
-
-
 
 static s32 fbm_free_frame_buffer(vpicture_t* picture)
 {
@@ -261,43 +452,43 @@ static s32 fbm_free_frame_buffer(vpicture_t* picture)
  		mem_pfree(picture->y);
  		picture->y = NULL;
  	}
-
+ 	
  	if(picture->u != NULL)
  	{
  		mem_pfree(picture->u);
  		picture->u = NULL;
  	}
-
+ 	
  	if(picture->v != NULL)
  	{
  		mem_pfree(picture->v);
  		picture->v = NULL;
  	}
-
+ 	
  	if(picture->alpha != NULL)
  	{
  		mem_pfree(picture->alpha);
  		picture->alpha = NULL;
 	}
-
+	
  	if(picture->y2 != NULL)
 	{
  		mem_pfree(picture->y2);
  		picture->y2 = NULL;
  	}
-
+	
  	if(picture->u2 != NULL)
 	{
  		mem_pfree(picture->u2);
  		picture->u2 = NULL;
  	}
-
+	
  	if(picture->v2 != NULL)
 	{
  		mem_pfree(picture->v2);
  		picture->v2 = NULL;
  	}
-
+	
  	if(picture->alpha2 != NULL)
 	{
  		mem_pfree(picture->alpha2);
@@ -308,19 +499,24 @@ static s32 fbm_free_frame_buffer(vpicture_t* picture)
 
 
 Handle fbm_init_ex(u32 max_frame_num,
-                u32 min_frame_num,
+                u32 min_frame_num, 
                 u32 size_y[2],
                 u32 size_u[2],
                 u32 size_v[2],
                 u32 size_alpha[2],
                 _3d_mode_e out_3d_mode,
                 pixel_format_e format,
+                u8	is_preview_mode,
                 void* parent)
 
 {
     s32     i;
     fbm_t*  fbm;
-    video_decoder_t* decoder;
+    //video_decoder_t* decoder;
+
+
+    if(size_y[0] >= (480*272))
+    		max_frame_num = min_frame_num;
 
     if(max_frame_num < min_frame_num)
     {
@@ -328,7 +524,7 @@ Handle fbm_init_ex(u32 max_frame_num,
     }
 	if(min_frame_num > FBM_MAX_FRAME_NUM)
 		return NULL;
-
+	
 	if(max_frame_num > FBM_MAX_FRAME_NUM)
 		max_frame_num = FBM_MAX_FRAME_NUM;
 
@@ -338,16 +534,27 @@ Handle fbm_init_ex(u32 max_frame_num,
         return NULL;
 	}
 	mem_set(fbm, 0, sizeof(fbm_t));
+
+#if 0
     libve_io_ctrl(LIBVE_COMMAND_GET_PARENT, (u32)&decoder, parent);
     if(decoder == NULL)
     {
         mem_free(fbm);
     }
+
     if(decoder->status == CEDARV_STATUS_PREVIEW)
     {
-        max_frame_num = 1;
-        min_frame_num = 1;
+        max_frame_num = 2;
+        min_frame_num = 2;
     }
+#else
+    if(is_preview_mode)
+    {
+    	max_frame_num = 2;
+        min_frame_num = 2;
+    }
+
+#endif
     //* alloc memory frame buffer.
     for(i=0; i<(s32)max_frame_num; i++)
     {
@@ -371,7 +578,7 @@ Handle fbm_init_ex(u32 max_frame_num,
     {
     	for(; i>=0; i--)
     		fbm_free_frame_buffer(&fbm->frames[i].picture);
-
+    		
     	mem_free(fbm);
     	return NULL;
     }
@@ -380,11 +587,122 @@ Handle fbm_init_ex(u32 max_frame_num,
     if(out_3d_mode == _3D_MODE_DOUBLE_STREAM)
     {
        if(fbm_alloc_redBlue_frame_buffer((Handle)fbm) < 0)
-       {
+       {   
             fbm_release((Handle)fbm, parent);
             return NULL;
        }
     }
+    
+    
+    //* initialize empty frame queue semaphore.
+    fbm->mutex = semaphore_create(1);
+    if(fbm->mutex == NULL)
+    {
+        fbm_release((Handle)fbm, parent);
+        return NULL;
+    }
+    
+    //* put all frame to empty frame queue.
+    for(i=0; i<(s32)fbm->max_frame_num; i++)
+    {
+        fbm_enqueue(&fbm->empty_queue, &fbm->frames[i]);
+    }
+
+    return (Handle)fbm;
+}
+
+Handle fbm_init_ex_yv12(u32 max_frame_num,
+                u32 min_frame_num,
+                u32 size_y[2],
+                u32 size_u[2],
+                u32 size_v[2],
+                u32 size_alpha[2],
+                _3d_mode_e out_3d_mode,
+                pixel_format_e format,
+                u8	is_preview_mode,
+                void* parent)
+
+{
+    s32     i;
+    fbm_t*  fbm;
+    //video_decoder_t* decoder;
+
+    if(size_y[0] >= (480*272))
+    		max_frame_num = min_frame_num;
+    if(max_frame_num < min_frame_num)
+    {
+        max_frame_num = min_frame_num;
+    }
+	if(min_frame_num > FBM_MAX_FRAME_NUM)
+		return NULL;
+
+	if(max_frame_num > FBM_MAX_FRAME_NUM)
+		max_frame_num = FBM_MAX_FRAME_NUM;
+
+	fbm = (fbm_t*) mem_alloc(sizeof(fbm_t));
+	if(!fbm)
+	{
+        return NULL;
+	}
+	mem_set(fbm, 0, sizeof(fbm_t));
+
+#if 0
+    libve_io_ctrl(LIBVE_COMMAND_GET_PARENT, (u32)&decoder, parent);
+    if(decoder == NULL)
+    {
+        mem_free(fbm);
+    }
+
+    if(decoder->status == CEDARV_STATUS_PREVIEW)
+    {
+        max_frame_num = 2;
+        min_frame_num = 2;
+    }
+#else
+    if(is_preview_mode)
+    {
+    	max_frame_num = 2;
+        min_frame_num = 2;
+    }
+
+#endif
+    //* alloc memory frame buffer.
+    for(i=0; i<(s32)max_frame_num; i++)
+    {
+    	fbm->frames[i].picture.id 		  = i;
+    	fbm->frames[i].picture.size_y 	  = size_y[0];
+    	fbm->frames[i].picture.size_u 	  = size_u[0]/2;
+    	fbm->frames[i].picture.size_v 	  = size_u[0]/2;
+    	fbm->frames[i].picture.size_alpha = size_alpha[0];
+
+    	fbm->frames[i].picture.size_y2		= size_y[1];
+    	fbm->frames[i].picture.size_u2		= size_u[1];
+    	fbm->frames[i].picture.size_v2		= size_v[1];
+    	fbm->frames[i].picture.size_alpha2	= size_alpha[1];
+
+    	if(fbm_alloc_yv12_frame_buffer(&fbm->frames[i].picture) != 0)
+    	{
+    	    break;
+    	}
+    }
+    if(i < (s32)min_frame_num)
+    {
+    	for(; i>=0; i--)
+    		fbm_free_frame_buffer(&fbm->frames[i].picture);
+
+    	mem_free(fbm);
+    	return NULL;
+    }
+
+    fbm->max_frame_num = i;
+    /*if(out_3d_mode == _3D_MODE_DOUBLE_STREAM)
+    {
+       if(fbm_alloc_redBlue_frame_buffer((Handle)fbm) < 0)
+       {
+            fbm_release((Handle)fbm, parent);
+            return NULL;
+       }
+    }*/
 
 
     //* initialize empty frame queue semaphore.
@@ -404,23 +722,136 @@ Handle fbm_init_ex(u32 max_frame_num,
     return (Handle)fbm;
 }
 
+Handle fbm_init_yv32(u32 max_frame_num,
+                u32 min_frame_num,
+                u32 size_y[2],
+                u32 size_u[2],
+                u32 size_v[2],
+                u32 size_alpha[2],
+                _3d_mode_e out_3d_mode,
+                pixel_format_e format,
+                u8	is_preview_mode,
+                void* parent)
+
+{
+    s32     i;
+    fbm_t*  fbm;
+    //video_decoder_t* decoder;
+
+
+    if(size_y[0] >= (480*272))
+    		max_frame_num = min_frame_num;
+
+    if(max_frame_num < min_frame_num)
+    {
+        max_frame_num = min_frame_num;
+    }
+	if(min_frame_num > FBM_MAX_FRAME_NUM)
+		return NULL;
+
+	if(max_frame_num > FBM_MAX_FRAME_NUM)
+		max_frame_num = FBM_MAX_FRAME_NUM;
+
+	fbm = (fbm_t*) mem_alloc(sizeof(fbm_t));
+	if(!fbm)
+	{
+        return NULL;
+	}
+	mem_set(fbm, 0, sizeof(fbm_t));
+
+#if 0
+    libve_io_ctrl(LIBVE_COMMAND_GET_PARENT, (u32)&decoder, parent);
+    if(decoder == NULL)
+    {
+        mem_free(fbm);
+    }
+
+    if(decoder->status == CEDARV_STATUS_PREVIEW)
+    {
+        max_frame_num = 2;
+        min_frame_num = 2;
+    }
+#else
+    if(is_preview_mode)
+    {
+    	max_frame_num = 2;
+        min_frame_num = 2;
+    }
+
+#endif
+    //* alloc memory frame buffer.
+    for(i=0; i<(s32)max_frame_num; i++)
+    {
+    	fbm->frames[i].picture.id 		  = i;
+    	fbm->frames[i].picture.size_y 	  = size_y[0];
+    	fbm->frames[i].picture.size_u 	  = size_u[0];
+    	fbm->frames[i].picture.size_v 	  = size_v[0];
+    	fbm->frames[i].picture.size_alpha = size_alpha[0];
+
+    	fbm->frames[i].picture.size_y2		= size_y[1];
+    	fbm->frames[i].picture.size_u2		= size_u[1];
+    	fbm->frames[i].picture.size_v2		= size_v[1];
+    	fbm->frames[i].picture.size_alpha2	= size_alpha[1];
+
+    	//if(fbm_alloc_yv32_frame_buffer(&fbm->frames[i].picture) != 0)
+    	if(fbm_alloc_frame_buffer(&fbm->frames[i].picture) != 0)
+    	{
+    	    break;
+    	}
+    }
+    if(i < (s32)min_frame_num)
+    {
+    	for(; i>=0; i--)
+    		fbm_free_frame_buffer(&fbm->frames[i].picture);
+
+    	mem_free(fbm);
+    	return NULL;
+    }
+
+    fbm->max_frame_num = i;
+//    if(out_3d_mode == _3D_MODE_DOUBLE_STREAM)
+//    {
+//       if(fbm_alloc_redBlue_frame_buffer((Handle)fbm) < 0)
+//       {
+//            fbm_release((Handle)fbm, parent);
+//            return NULL;
+//       }
+//    }
+
+
+    //* initialize empty frame queue semaphore.
+    fbm->mutex = semaphore_create(1);
+    if(fbm->mutex == NULL)
+    {
+        fbm_release((Handle)fbm, parent);
+        return NULL;
+    }
+
+    //* put all frame to empty frame queue.
+    for(i=0; i<(s32)fbm->max_frame_num; i++)
+    {
+        fbm_enqueue(&fbm->empty_queue, &fbm->frames[i]);
+    }
+
+    return (Handle)fbm;
+}
 
 void fbm_release(Handle h, void* parent)
 {
     u32     i;
     fbm_t*  fbm;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return;
-
+        
     if(fbm->mutex)
     {
     	semaphore_delete(fbm->mutex, SEM_DEL_ALWAYS);
         fbm->mutex = NULL;
     }
-
+        
     for(i=0; i<fbm->max_frame_num; i++)
     {
     	if(fbm->is_preview_mode)
@@ -436,9 +867,9 @@ void fbm_release(Handle h, void* parent)
     		fbm_free_frame_buffer(&fbm->frames[i].picture);
     	}
     }
-
+    
     mem_free(fbm);
-
+    
     return;
 }
 
@@ -545,30 +976,29 @@ s32 fbm_flush(Handle h)
     return 0;
 }
 
-
 vpicture_t* fbm_decoder_request_frame(Handle h)
 {
 	u32           i;
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return NULL;
 
     frame_info = NULL;
-
+    
     for(i=0; i<FBM_REQUEST_FRAME_WAIT_TIME/10; i++)
     {
     	lock(fbm);
-
+        
     	frame_info = fbm_dequeue(&fbm->empty_queue);
     	if(frame_info != NULL)
     	{
         	frame_info->status = FS_DECODER_USING;
     	}
-
+        
     	unlock(fbm);
 
     	if(frame_info != NULL)
@@ -591,18 +1021,18 @@ void fbm_decoder_return_frame(vpicture_t* frame, u8 valid, Handle h)
     u8            idx;
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
 
     if(fbm == NULL)
         return;
-
+        
     idx = fbm_pointer_to_index(frame, h);
     if(idx >= fbm->max_frame_num)
         return;
-
+        
     frame_info = &fbm->frames[idx];
-
+    
     if(lock(fbm) != 0)
         return;
 
@@ -632,9 +1062,9 @@ void fbm_decoder_return_frame(vpicture_t* frame, u8 valid, Handle h)
     {
         //* error case, program should not run to here.
     }
-
+        
     unlock(fbm);
-
+    
     return;
 }
 
@@ -644,18 +1074,18 @@ void fbm_decoder_share_frame(vpicture_t* frame, Handle h)
     u8            idx;
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
 
     if(fbm == NULL)
         return;
-
+        
     idx = fbm_pointer_to_index(frame, h);
     if(idx >= fbm->max_frame_num)
         return;
-
+        
     frame_info = &fbm->frames[idx];
-
+    
     if(lock(fbm) != 0)
         return;
 
@@ -672,21 +1102,21 @@ vpicture_t* fbm_display_request_frame(Handle h)
 {
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return NULL;
-
+        
     frame_info = NULL;
-
+    
     if(lock(fbm) != 0)
         return NULL;
 
     frame_info = fbm_dequeue(&fbm->display_queue);
 
     unlock(fbm);
-
+    
     if(frame_info != NULL)
         return &frame_info->picture;
     else
@@ -699,18 +1129,18 @@ void fbm_display_return_frame(vpicture_t* frame, Handle h)
     u8            idx;
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return;
-
+        
     idx = fbm_pointer_to_index(frame, h);
     if(idx >= fbm->max_frame_num)
         return;
-
+        
     frame_info = &fbm->frames[idx];
-
+    
     if(lock(fbm) != 0)
         return;
 
@@ -727,9 +1157,9 @@ void fbm_display_return_frame(vpicture_t* frame, Handle h)
     {
         //* error case, program should not run to here.
     }
-
+        
     unlock(fbm);
-
+    
     return;
 }
 
@@ -753,18 +1183,51 @@ void fbm_vdecoder_return_frame(vpicture_t * frame, Handle h)
 	return ;
 }
 
+/*MVC MINOR DISCARD.By mickey.*/
+void fbm_flush_frame(Handle h, s64 pts)
+{
+	fbm_t * fbm;
+	frame_info_t* display_head, *frame_info;
+
+	fbm = (fbm_t*)h;
+	if(fbm == NULL)
+		return ;
+
+	frame_info = fbm->display_queue;
+	display_head = frame_info;
+	while(frame_info)
+	{
+		if(frame_info->picture.pts == pts)
+		{
+			if(frame_info == fbm->display_queue) {
+				fbm->display_queue = frame_info->next;
+			}
+			else {
+				display_head->next = frame_info->next;
+			}
+
+			fbm_enqueue(&fbm->empty_queue, frame_info);
+			frame_info->status = FS_EMPTY;
+			frame_info->next = NULL;
+			break;
+		}
+		display_head = frame_info;
+		frame_info = frame_info->next;
+	}
+}
+
 vpicture_t* fbm_display_pick_frame(Handle h)
 {
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return NULL;
-
+    
     frame_info = fbm->display_queue;
-
+    
     if(frame_info != NULL)
         return &frame_info->picture;
     else
@@ -776,15 +1239,15 @@ vpicture_t* fbm_index_to_pointer(u8 index, Handle h)
 {
     fbm_t*        fbm;
     frame_info_t* frame_info;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return NULL;
-
+    
     if(index >= fbm->max_frame_num)
         return NULL;
-
+    
     frame_info = &fbm->frames[index];
     return &frame_info->picture;
 }
@@ -794,18 +1257,18 @@ u8 fbm_pointer_to_index(vpicture_t* frame, Handle h)
 {
     u8            i;
     fbm_t*        fbm;
-
+    
     fbm = (fbm_t*)h;
-
+    
     if(fbm == NULL)
         return 0xff;
-
+    
     for(i=0; i<fbm->max_frame_num; i++)
     {
         if(&fbm->frames[i].picture == frame)
             break;
     }
-
+    
     return (i < fbm->max_frame_num) ? i : 0xff;
 }
 
@@ -813,9 +1276,9 @@ u8 fbm_pointer_to_index(vpicture_t* frame, Handle h)
 static void fbm_enqueue(frame_info_t** pp_head, frame_info_t* p)
 {
     frame_info_t* cur;
-
+    
     cur = *pp_head;
-
+    
     if(cur == NULL)
     {
         *pp_head = p;
@@ -826,11 +1289,11 @@ static void fbm_enqueue(frame_info_t** pp_head, frame_info_t* p)
     {
         while(cur->next != NULL)
             cur = cur->next;
-
+        
         cur->next = p;
         p->next   = NULL;
-
-        return;
+        
+        return;        
     }
 }
 
@@ -847,9 +1310,9 @@ void fbm_enqueue_to_head(frame_info_t ** pp_head, frame_info_t *p)
 static frame_info_t* fbm_dequeue(frame_info_t** pp_head)
 {
     frame_info_t* head;
-
+    
     head = *pp_head;
-
+    
     if(head == NULL)
         return NULL;
     else
@@ -867,7 +1330,7 @@ static s32 lock(fbm_t* fbm)
     {
         return -1;
     }
-
+    
     return 0;
 }
 
@@ -892,4 +1355,21 @@ static void unlock(fbm_t* fbm)
 	EXIT_CRITICAL(cpu_sr);
 }
 #endif
+
+
+//****************************************************************************//
+//************************ Instance of FBM Interface *************************//
+//****************************************************************************//
+IFBM_t IFBM =
+{
+    fbm_release,
+    fbm_decoder_request_frame,
+    fbm_decoder_return_frame,
+    fbm_decoder_share_frame,
+    fbm_init_ex,
+    fbm_init_ex_yv12,
+    fbm_init_yv32,
+    fbm_flush_frame,
+    fbm_print_status
+};
 

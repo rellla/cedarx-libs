@@ -17,52 +17,21 @@
 #include <cedardev_api.h>		//* you can find this header file in cedarX/CedarX/include/include_platform/CHIP_F20
 #include "avheap.h"
 
-//****************************************************************************//
-//************************ Instance of FBM Interface *************************//
-//****************************************************************************//
-IFBM_t gIFBM =
-{
-    fbm_release,
-    fbm_decoder_request_frame,
-    fbm_decoder_return_frame,
-    fbm_decoder_share_frame,
-    fbm_init_ex
-};
-
 #define WALL_CLOCK_FREQ (50*1000)
 static signed long long wall_clock = 0;
 unsigned int avs_cnt_last = 0;
-//****************************************************************************//
-//************************ Instance of VBV Interface *************************//
-//****************************************************************************//
-
-static void flush_stream_frame(vstream_data_t* stream, Handle vbv)
-{
-    vbv_flush_stream_frame(stream, vbv);
-    libcedarv_free_vbs_buffer_sem(vbv_get_parent(vbv));
-}
-
-IVBV_t gIVBV =
-{
-    vbv_request_stream_frame,
-    vbv_return_stream_frame,
-    flush_stream_frame,
-    vbv_get_base_addr,
-    vbv_get_buffer_size
-};
-
 
 //****************************************************************************//
 //************************ Instance of OS Interface **************************//
 //****************************************************************************//
-IOS_t gIOS =
+IOS_t IOS = 
 {
     //* Heap operation.
     mem_alloc,
     mem_free,
     mem_palloc,
     mem_pfree,
-
+    
     //* Memory operation.
     mem_set,
     mem_cpy,
@@ -178,7 +147,7 @@ static s32       ve_wait_intr(void);
 static u32       ve_get_reg_base_addr(void);
 static memtype_e ve_get_memtype(void);
 
-IVEControl_t gIVE =
+IVEControl_t IVE = 
 {
     ve_reset_hardware,
     ve_enable_clock,
