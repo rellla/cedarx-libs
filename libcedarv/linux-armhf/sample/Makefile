@@ -1,53 +1,45 @@
+CEDARDIR=..
 
-CC = arm-none-linux-gnueabi-gcc
-CPP = arm-none-linux-gnueabi-g++
-STRIP = arm-none-linux-gnueabi-strip
-AR = arm-none-linux-gnueabi-ar
+include $(CEDARDIR)/cedardefs.mk
+
+CROSS_COMPILE = arm-linux-gnueabihf-
+CC = $(CROSS_COMPILE)gcc
+CPP = $(CROSS_COMPILE)g++
+STRIP = $(CROSS_COMPILE)strip
+AR = $(CROSS_COMPILE)ar
 
 DATA_SRC=file
 
-SRCDIRS     := . \
-			  ./render \
-			  ./vdecoder/fbm \
-			  ./vdecoder/vbv \
-			  ./vdecoder/libvecore \
-			  ./vdecoder/libcedarv \
-			  ./vdecoder/adapter \
-			  ./vdecoder/adapter/cdxalloc \
-			  
-			  
+SRCDIRS := . ./render 
+
 ifeq ($(DATA_SRC), file)
-SRCDIRS+=./file_parser/pmp
+SRCDIRS+=./file_parser
+#EXT_FLAGS = -DFILE_PARSER
 else
-SRCDIRS+=./stream_parser 
+SRCDIRS+=./stream_parser
+#EXT_FLAGS = -DSTREAM_PARSER
 endif
-			  
-INCLUDES := $(foreach dir,$(SRCDIRS),-I$(dir))
-INCLUDES += -I./include -I./file_parser/mov/inc
+
+INCLUDES := $(foreach dir,$(SRCDIRS),-I$(dir)) $(CEDARINCLUDES)
 SRCCS    = $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
 OBJ  	 := $(SRCCS:%.c=%.o)
-#OBJ=$(addsuffix .o, $(basename $(SRCCS)))
 
 CFLAGS = -Wall -O0 -g
 ifeq ($(DATA_SRC), file)
-EXT_FLAGS += -DFILE_PARSER
+CFLAGS += -DFILE_PARSER
 else
-EXT_FLAGS += -DSTREAM_PARSER
+CFLAGS += -DSTREAM_PARSER
 endif
-CFLAGS := $(CFLAGS) $(INCLUDES)
-LDFLAGS += -lpthread -lcedarxalloc -lvecore -ldl -lve_base
-LDFLAGS +=-L./lib
+#CFLAGS := $(CFLAGS) $(INCLUDES) -march=armv7-a -mfloat-abi=softfp -mfpu=neon
+CFLAGS := $(CFLAGS) $(INCLUDES) -march=armv7-a -mfpu=neon
+LIBS += -lpthread $(CEDARLIBS)
 
-TARGET = output/ve
+TARGET = ve
 
 all: $(TARGET)
 
-$(OBJ):%.o:%.c
-	$(CC) $(CFLAGS) $(EXT_FLAGS) -o $@ -c $<
-
 $(TARGET): $(OBJ)
-	$(CPP) $(CFLAGS) ${EXT_FLAGS} $(LDFLAGS) -o $@ $^
-
+	$(CC) $(EXT_FLAGS) $(CFLAGS) -o $@ $^ $(LIBS)
 
 clean:
 	@rm -f $(TARGET)

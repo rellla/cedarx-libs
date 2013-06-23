@@ -116,15 +116,13 @@ s32 semaphore_post(Handle h)
 //*******************************************************//
 s32 sys_print(u8* func, u32 line, ...)
 {
-/* use other print function
     va_list args;
 
     va_start(args, line);
 
-    AwVLog((char*)func, line, args);
+	AwVLog((char*)func, line, args);
 
     va_end(args);
-*/
 
     return 0;
 }
